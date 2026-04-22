@@ -7,6 +7,7 @@ class AutomationSafari
                           CollectItems: "Safari-CollectItems",
                           FeatureEnabled: "Safari-HuntEnabled",
                           FocusOnBaitAchievements: "Safari-BaitAchievements",
+                          FocusOnXpAchievements: "Safari-xp",
                           InfinitRepeat: "Safari-InfinitRepeat"
                       };
 
@@ -22,6 +23,7 @@ class AutomationSafari
             // Set the advanced settings default values
             Automation.Utils.LocalStorage.setDefaultValue(this.Settings.CollectItems, true);
             Automation.Utils.LocalStorage.setDefaultValue(this.Settings.FocusOnBaitAchievements, false);
+            Automation.Utils.LocalStorage.setDefaultValue(this.Settings.FocusOnXpAchievements, false);
 
             // Set to solo run by default
             Automation.Utils.LocalStorage.setDefaultValue(this.Settings.InfinitRepeat, false);
@@ -119,6 +121,12 @@ class AutomationSafari
         Automation.Menu.addLabeledAdvancedSettingsToggleButton(achievementLabel,
                                                                this.Settings.FocusOnBaitAchievements,
                                                                achievementTooltip,
+                                                               safariSettingPanel);
+        const xpLabel = "Prioritize rock use to generate xp";
+        const xpTooltip = "Uses rock instead of flee if flee chance bellow 50%";
+        Automation.Menu.addLabeledAdvancedSettingsToggleButton(xpLabel,
+                                                               this.Settings.FocusOnXpAchievements,
+                                                               xpTooltip,
                                                                safariSettingPanel);
 
 
@@ -595,15 +603,50 @@ class AutomationSafari
         {
             SafariBattle.throwBait();
         }
-        // Thow a rock at the pokémon to improve the catch rate, unless its angry or its catch factor is high enough
-        else if ((SafariBattle.enemy.angry == 0)
-                 && (SafariBattle.enemy.catchFactor < 90))
+        const enemy = SafariBattle.enemy;
+        const escapeFactor = (typeof enemy.escapeFactor === 'function') ? enemy.escapeFactor() : enemy.escapeFactor;
+        const catchFactor = (typeof enemy.catchFactor === 'function') ? enemy.catchFactor() : enemy.catchFactor;
+        const eatingBait = (typeof enemy.eatingBait === 'function') ? enemy.eatingBait() : enemy.eatingBait;
+        const partyPokemon = App.game.party.getPokemonByName(enemy.name);
+        const currentEVs = partyPokemon ? partyPokemon.evs() : 0;
+
+        const HIGH_ESCAPE_THRESHOLD = 0.40;
+        const LOW_CATCH_THRESHOLD = 0.50;
+        const SAFE_ROCK_THRESHOLD = 0.20;
+
+        const throwRockForEscape = (Automation.Utils.LocalStorage.getValue(this.Settings.FocusOnXpAchievements) === "true")
+            && (escapeFactor > HIGH_ESCAPE_THRESHOLD);
+        if (currentEVs >= 50 && enemy.shiny === false)
         {
-            SafariBattle.throwRock();
+            throwRockForEscape ? SafariBattle.throwRock() : SafariBattle.run();
         }
-        // Try to catch the pokémon
-        else
-        {
+
+        // Already angry, impossible to do better
+        if (enemy.angry > 0) {
+            SafariBattle.throwBall();
+        }
+
+        // play defensively
+        if (escapeFactor >= HIGH_ESCAPE_THRESHOLD) {
+            // If it's not already under the effect of a Razz Berry, use one.
+            if (eatingBait !== 0 && eatingBait !== BaitList.Razz.type && BaitList.Razz.amount() > 0) {
+                SafariBattle.selectedBait(BaitList.Razz);
+                SafariBattle.throwBait()
+            }
+            SafariBattle.throwBall();
+        }
+
+        // If the catch rate is low, try to boost it.
+        if (catchFactor <= LOW_CATCH_THRESHOLD) {
+            // Is the escape rate low enough, use rock
+            if (escapeFactor <= SAFE_ROCK_THRESHOLD) {
+                SafariBattle.throwRock();
+            }
+        }
+        if (eatingBait !== 0 && eatingBait !== BaitList.Nanab.type && BaitList.Nanab.amount() > 0) {
+            SafariBattle.selectedBait(BaitList.Nanab);
+            SafariBattle.throwBait()
+        } else {
             SafariBattle.throwBall();
         }
     }
